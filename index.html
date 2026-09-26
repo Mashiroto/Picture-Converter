@@ -16,13 +16,14 @@ Dependencies (loaded via CDN, both must stay pinned to these versions):
 
 Changelog:
 - 1.0.0 (2026-09-22): Initial public version.
+- 1.0.1 (2026-09-26): Download bug fix. Updated tab hover text. Adjusted title spacing.
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PixConvert — Private Local Image Converter</title>
+<title>Picture Converter - Private Local Image Converter</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231a1a1c'/><rect x='22' y='28' width='56' height='44' rx='6' fill='none' stroke='%23c9a6ff' stroke-width='6'/><circle cx='36' cy='42' r='6' fill='%23c9a6ff'/><path d='M22 64 L38 48 L50 60 L62 48 L78 64' fill='none' stroke='%23c9a6ff' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -77,10 +78,11 @@ a{color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 
 /* Header */
-header{text-align:center;margin-bottom:28px;display:flex;flex-direction:column;align-items:center;gap:8px}
+header{text-align:center;margin-bottom:18px;display:flex;flex-direction:column;align-items:center;gap:8px}
 .logo-mark{width:46px;height:46px;color:var(--accent)}
 header h1{
   font-family:var(--font-head);font-weight:700;font-size:3rem;letter-spacing:-.02em;
+  line-height:1.3;
   color:var(--accent);
   text-shadow:0 0 18px rgba(185,138,242,.55),0 0 42px rgba(185,138,242,.25);
 }
@@ -617,6 +619,15 @@ function resultRow(name,size,url,extra,blob){
     });
   }
   return d;
+}
+
+function triggerDownload(url, name){
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 async function saveBlob(blob,suggestedName){
