@@ -15,9 +15,10 @@ Dependencies (loaded via CDN, both must stay pinned to these versions):
 - JSZip 3.10.1
 
 Changelog:
-- 1.0.0 (2026-09-22): Initial public version.
+- 1.0.0 (2026-09-23): Initial public version.
 - 1.0.1 (2026-09-26): Download bug fix, updated tab hover text, adjusted title spacing.
 - 1.0.2 (2026-09-28): Phone compatibility and better user experience.
+- 1.1.0 (2026-09-28): Added converting history, including file name edit and seperate file removing.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -79,11 +80,10 @@ a{color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 
 /* Header */
-header{text-align:center;margin-bottom:18px;display:flex;flex-direction:column;align-items:center;gap:8px}
+header{text-align:center;margin-bottom:28px;display:flex;flex-direction:column;align-items:center;gap:8px}
 .logo-mark{width:46px;height:46px;color:var(--accent)}
 header h1{
   font-family:var(--font-head);font-weight:700;font-size:3rem;letter-spacing:-.02em;
-  line-height:1.3;
   color:var(--accent);
   text-shadow:0 0 18px rgba(185,138,242,.55),0 0 42px rgba(185,138,242,.25);
 }
@@ -237,7 +237,8 @@ input[type=color]{width:44px;height:38px;border:1px solid var(--border-strong);b
   display:flex;align-items:center;gap:10px;background:var(--panel-2);border:1px solid var(--border);
   border-radius:var(--radius-sm);padding:10px 14px;font-size:.85rem;animation:thumbIn .25s ease both;
 }
-.result-item .rname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.result-item .namewrap{flex:1;display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden}
+.result-item .rname{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
 .result-item a{color:var(--accent);text-decoration:none;font-weight:600;padding:4px 10px;border-radius:99px;transition:background-color .15s ease}
 .result-item a:hover{background:var(--accent-soft)}
 #err{
@@ -246,6 +247,27 @@ input[type=color]{width:44px;height:38px;border:1px solid var(--border-strong);b
   padding:10px 14px;
 }
 footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
+
+.result-item .rename,.result-item .trash{
+  background:none;border:none;color:var(--muted);cursor:pointer;font-size:.8rem;
+  opacity:0;transition:opacity .15s ease;padding:2px 4px;border-radius:6px;
+}
+.result-item:hover .rename,.result-item:hover .trash{opacity:1}
+.result-item .rename:hover{color:var(--accent);background:var(--accent-soft)}
+.result-item .trash:hover{color:var(--danger);background:var(--danger-soft)}
+.rename-input{
+  background:var(--panel-3);border:1px solid var(--accent);border-radius:6px;
+  color:var(--text);font-size:.85rem;padding:3px 8px;flex:1;min-width:0;font-family:var(--font-body);
+}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal-overlay.hidden{display:none}
+.modal-box{background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--radius);padding:28px 28px 24px;width:100%;max-width:380px;text-align:center;box-shadow:var(--shadow);animation:modalIn .18s ease}
+@keyframes modalIn{from{opacity:0;transform:scale(.95) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.modal-title{font-family:var(--font-head);font-weight:600;font-size:1.1rem;color:var(--text);margin-bottom:10px}
+.modal-text{font-size:.9rem;line-height:1.55;color:var(--muted);margin-bottom:22px}
+.modal-actions{display:flex;justify-content:center;gap:10px}
+
 </style>
 </head>
 <body>
@@ -309,7 +331,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
     <div class="field"><label>Encoding</label>
       <select id="webpLoss"><option value="lossy">Lossy</option><option value="lossless">Lossless</option></select>
     </div>
-    <div class="field" id="webpQField"><label>Quality: <span id="wqVal">85</span>%</label><input type="range" id="webpQ" min="1" max="100" value="85"></div>
+    <div class="field" id="webpQField"><label>Quality: <span id="wqVal">100</span>%</label><input type="range" id="webpQ" min="1" max="100" value="100"></div>
   </div>
 
   <div id="optPng" style="margin-top:16px;font-size:.85rem;color:var(--muted)">
@@ -379,11 +401,23 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
 <footer>All processing happens in your browser — nothing is uploaded anywhere.</footer>
 </div>
 
+<div id="confirmModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <p class="modal-title">Delete this conversion?</p>
+    <p class="modal-text">This only deletes the converted file in this history — Your original file on your device stays untouched!</p>
+    <div class="modal-actions">
+      <button class="btn secondary small" id="modalCancel">Cancel</button>
+      <button class="btn small" id="modalConfirm" style="background:linear-gradient(135deg,var(--danger),#c94340);box-shadow:none">Delete</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
 const ACCEPT={jpg:1,jpeg:1,png:1,webp:1,gif:1,bmp:1};
 const files=[]; // {file, name, size, bitmap, canvas, hasAlpha, animated}
+const allBlobs=[]; // keeps every converted result until "Clear list"
 
 /* ---------- Adding files ---------- */
 const dz=$('dropzone'), fi=$('fileInput');
@@ -415,7 +449,8 @@ async function addFiles(list){
       item.hasAlpha=hasTransparency(c);
       files.push(item);
     }catch(err){
-      showErr(`❌ Could not read "${f.name}".`);
+      console.error(err);
+      showErr(`❌ Could not read "${f.name}": ${err.message}`);
     }
   }
   $('gifNote').style.display=gifFound?'block':'none';
@@ -567,7 +602,6 @@ function baseName(n){return n.replace(/\.[^.]+$/,'');}
 $('convertBtn').onclick=async()=>{
   if(!files.length)return;
   hideErr();
-  $('results').innerHTML=''; $('zipBtn').classList.add('hidden'); $('pdfDlBtn').classList.add('hidden');
   const f=$('fmt').value;
   if(f==='pdf'){await makePDF();return;}
   await convertIndividual(f);
@@ -579,7 +613,7 @@ async function convertIndividual(f){
   const results=$('results');
   const q={jpeg:+$('jpegQ').value/100, webp:+$('webpQ').value/100}[f];
   const webpLossless=f==='webp'&&$('webpLoss').value==='lossless';
-  const blobs=[];
+  let count=0;
   for(let i=0;i<files.length;i++){
     status.textContent = `Converting ${i+1}/${files.length}: ${files[i].name}…`;
     fill.style.width=((i)/files.length*100)+'%';
@@ -590,18 +624,20 @@ async function convertIndividual(f){
       const ext2=webpLossless?'webp':(f==='jpeg'?'jpg':f);
       const name=baseName(files[i].name)+'.'+ext2;
       const url=URL.createObjectURL(blob);
-      blobs.push({name,blob});
-      results.appendChild(resultRow(name,blob.size,url,`${fmtSize(blob.size)}`,blob));
+      const item={name,blob};
+      allBlobs.push(item);
+      results.appendChild(resultRow(item,blob.size,url,`${fmtSize(blob.size)}`));
+      count++;
     }catch(err){showErr(`❌ Failed to convert "${files[i].name}".`);}
   }
   fill.style.width='100%';
-  status.textContent = `✅ Done — ${blobs.length} file(s) converted.`;
-  if(blobs.length>1){
+  status.textContent = `✅ Done — ${count} file(s) converted.`;
+  if(allBlobs.length>1){
     $('zipBtn').classList.remove('hidden');
     $('zipBtn').onclick=async()=>{
       status.textContent='Creating ZIP…';
       const zip=new JSZip();
-      blobs.forEach(b=>zip.file(b.name,b.blob));
+      allBlobs.forEach(b=>zip.file(b.name,b.blob));
       const zblob=await zip.generateAsync({type:'blob'});
       await saveBlob(zblob,`converted-images-${Date.now()}.zip`);
       status.textContent='✅ ZIP ready.'; 
@@ -610,15 +646,57 @@ async function convertIndividual(f){
   setTimeout(()=>prog.style.display='none',1500);
 }
 
-function resultRow(name,size,url,extra,blob){
+function confirmDialog(){
+  return new Promise(resolve=>{
+    const modal=$('confirmModal');
+    modal.classList.remove('hidden');
+    const ok=$('modalConfirm'), cancel=$('modalCancel');
+    const cleanup=val=>{modal.classList.add('hidden');ok.onclick=null;cancel.onclick=null;resolve(val);};
+    ok.onclick=()=>cleanup(true);
+    cancel.onclick=()=>cleanup(false);
+  });
+}
+
+function resultRow(item,size,url,extra){
   const d=document.createElement('div');d.className='result-item';
-  d.innerHTML=`<span>📄</span><span class="rname">${esc(name)}</span><span style="color:var(--muted)">${extra}</span><a href="${url}" download="${esc(name)}" class="dl">Download ⬇</a>`;
-  if(blob){
-    d.querySelector('.dl').addEventListener('click',e=>{
-      e.preventDefault();
-      saveBlob(blob,name);
-    });
-  }
+  d.innerHTML=`<span>📄</span>
+    <span class="namewrap"><span class="rname">${esc(item.name)}</span><button class="rename" title="Rename">✏️</button></span>
+    <button class="trash" title="Remove"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7h16M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7m2 0v13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7h10Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <span style="color:var(--muted)">${extra}</span>
+    <a href="${url}" download="${esc(item.name)}" class="dl">Download ⬇</a>`;
+  const link=d.querySelector('.dl');
+  link.addEventListener('click',e=>{e.preventDefault();saveBlob(item.blob,item.name);});
+
+  d.querySelector('.rename').onclick=()=>{
+    const nameEl=d.querySelector('.rname');
+    const dot=item.name.lastIndexOf('.');
+    const ext=dot>-1?item.name.slice(dot):'';
+    const base=dot>-1?item.name.slice(0,dot):item.name;
+    const input=document.createElement('input');
+    input.type='text';input.value=base;input.className='rename-input';
+    nameEl.replaceWith(input);input.focus();input.select();
+    const commit=()=>{
+      const val=input.value.trim();
+      item.name=(val||base)+ext;
+      const span=document.createElement('span');
+      span.className='rname';span.textContent=item.name;
+      input.replaceWith(span);
+      link.setAttribute('download',item.name);
+    };
+    input.addEventListener('blur',commit);
+    input.addEventListener('keydown',e=>{if(e.key==='Enter')input.blur();});
+  };
+
+  d.querySelector('.trash').onclick=async()=>{
+    const sure=await confirmDialog();
+    if(!sure)return;
+    const idx=allBlobs.indexOf(item);
+    if(idx>-1)allBlobs.splice(idx,1);
+    URL.revokeObjectURL(url);
+    d.remove();
+    if(allBlobs.length<2)$('zipBtn').classList.add('hidden');
+  };
+
   return d;
 }
 
@@ -702,9 +780,10 @@ async function makePDF(){
     const blob=doc.output('blob');
     const url=URL.createObjectURL(blob);
     const name=files.length===1?baseName(files[0].name)+'.pdf':`converted-${Date.now()}.pdf`;
-    $('results').appendChild(resultRow(name,blob.size,url,`${files.length} page(s)`,blob));
+    const item={name,blob};
+    $('results').appendChild(resultRow(item,blob.size,url,`${files.length} page(s)`));
     $('pdfDlBtn').classList.remove('hidden');
-    $('pdfDlBtn').onclick=()=>saveBlob(blob,name);
+    $('pdfDlBtn').onclick=()=>saveBlob(item.blob,item.name);
   }catch(err){
     showErr('❌ PDF generation failed: '+err.message);
   }
@@ -712,7 +791,7 @@ async function makePDF(){
 }
 
 /* ---------- Clear ---------- */
-$('clearBtn').onclick=()=>{files.length=0; $('results').innerHTML=''; $('zipBtn').classList.add('hidden'); $('pdfDlBtn').classList.add('hidden'); render(); hideErr();};
+$('clearBtn').onclick=()=>{files.length=0; allBlobs.length=0; $('results').innerHTML=''; $('zipBtn').classList.add('hidden'); $('pdfDlBtn').classList.add('hidden'); render(); hideErr();};
 </script>
 </body>
 </html>
