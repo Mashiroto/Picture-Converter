@@ -16,7 +16,8 @@ Dependencies (loaded via CDN, both must stay pinned to these versions):
 
 Changelog:
 - 1.0.0 (2026-09-22): Initial public version.
-- 1.0.1 (2026-09-26): Download bug fix. Updated tab hover text. Adjusted title spacing.
+- 1.0.1 (2026-09-26): Download bug fix, updated tab hover text, adjusted title spacing.
+- 1.0.2 (2026-09-28): Phone compatibility and better user experience.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -625,6 +626,8 @@ function triggerDownload(url, name){
   const a=document.createElement('a');
   a.href=url;
   a.download=name;
+  a.target='_blank';
+  a.rel='noopener';
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -651,7 +654,7 @@ async function saveBlob(blob,suggestedName){
   }
   const url=URL.createObjectURL(blob);
   triggerDownload(url,suggestedName);
-  URL.revokeObjectURL(url);
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 
 /* ---------- PDF ---------- */
