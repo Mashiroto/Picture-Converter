@@ -19,6 +19,7 @@ Changelog:
 - 1.0.1 (2026-09-26): Download bug fix, updated tab hover text, adjusted title spacing.
 - 1.0.2 (2026-09-28): Phone compatibility and better user experience.
 - 1.1.0 (2026-09-28): Added converting history, including file name edit and seperate file removing.
+- 1.1.1 (2026-09-30): Phone compatibility, GUI adjustments, PDF convertion fix, 'Download All' bug fix.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -159,6 +160,7 @@ header p{color:var(--muted);font-size:.95rem;max-width:440px}
 .thumb .meta{padding:9px 11px}
 .thumb .name{font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
 .thumb .size{font-size:.7rem;color:var(--muted);margin-top:2px}
+
 .thumb .x{
   position:absolute;top:7px;right:7px;width:24px;height:24px;border-radius:50%;
   background:rgba(8,9,11,.75);backdrop-filter:blur(4px);color:#fff;border:1px solid var(--border-strong);
@@ -166,6 +168,10 @@ header p{color:var(--muted);font-size:.95rem;max-width:440px}
 }
 .thumb:hover .x{opacity:1}
 .thumb .x:hover{background:var(--danger);transform:scale(1.08)}
+@media (hover:none){
+  .thumb .x{opacity:1}
+}
+
 .thumb .gifwarn{
   position:absolute;bottom:44px;left:7px;background:rgba(8,9,11,.85);color:#ffcf7a;
   font-size:.65rem;padding:3px 7px;border-radius:6px;border:1px solid var(--border);
@@ -246,18 +252,57 @@ input[type=color]{width:44px;height:38px;border:1px solid var(--border-strong);b
   background:var(--danger-soft);border:1px solid rgba(239,100,97,.35);border-radius:var(--radius-sm);
   padding:10px 14px;
 }
-footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
 
-.result-item .rename,.result-item .trash{
-  background:none;border:none;color:var(--muted);cursor:pointer;font-size:.8rem;
-  opacity:0;transition:opacity .15s ease;padding:2px 4px;border-radius:6px;
+.result-item .rname{overflow:hidden;position:relative}
+.result-item .rname .scrollwrap{display:inline-flex;white-space:nowrap;width:max-content}
+.result-item .rname .scrollwrap span{padding-right:36px}
+.result-item .rname.marquee .scrollwrap{animation-name:marquee-scroll;animation-timing-function:linear;animation-iteration-count:infinite}
+@keyframes marquee-scroll{
+  from{transform:translateX(0)}
+  to{transform:translateX(-50%)}
 }
-.result-item:hover .rename,.result-item:hover .trash{opacity:1}
+
+footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
+.result-item .rsize{color:var(--muted)}
+.result-item .ftype{
+  flex:none;display:inline-flex;align-items:center;justify-content:center;
+  width:34px;height:26px;border-radius:7px;font-size:.62rem;font-weight:700;
+  letter-spacing:.02em;color:var(--ftype-color);
+  background:color-mix(in srgb, var(--ftype-color) 16%, transparent);
+  border:1px solid color-mix(in srgb, var(--ftype-color) 35%, transparent);
+}
+.result-item .rename,.result-item .trash{
+  display:inline-flex;align-items:center;justify-content:center;flex:none;
+  width:30px;height:30px;padding:0;border-radius:8px;
+  background:none;border:none;color:var(--muted);cursor:pointer;
+  opacity:0;transition:opacity .15s ease,color .15s ease,background-color .15s ease;
+}
+.result-item .rename svg,.result-item .trash svg{width:16px;height:16px}
+.result-item .tlabel{display:none}
+.result-item:hover .rename,.result-item:hover .trash,
+.result-item .rename:focus-visible,.result-item .trash:focus-visible{opacity:1}
+@media (hover:none){
+  .result-item .rename,.result-item .trash{opacity:1}
+}
 .result-item .rename:hover{color:var(--accent);background:var(--accent-soft)}
 .result-item .trash:hover{color:var(--danger);background:var(--danger-soft)}
 .rename-input{
   background:var(--panel-3);border:1px solid var(--accent);border-radius:6px;
   color:var(--text);font-size:.85rem;padding:3px 8px;flex:1;min-width:0;font-family:var(--font-body);
+}
+
+@media (max-width:560px){
+  .result-item{display:grid;grid-template-columns:auto 1fr auto auto;gap:6px 8px;align-items:center}
+  .result-item .rename,.result-item .trash{opacity:1}
+  .result-item > span:first-child{grid-column:1;grid-row:1}
+  .result-item .namewrap{grid-column:2 / 5;grid-row:1}
+  .result-item .trash{grid-column:1 / 3;grid-row:2;justify-self:start;width:auto;height:auto;padding:6px 10px 6px 0;margin-left:0;color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+  .result-item .trash:hover{background:none;color:var(--muted)}
+  .result-item .trash svg{display:none}
+  .result-item .trash .tlabel{display:inline;font-size:.82rem;font-weight:600}
+  .result-item .rsize{grid-column:3;grid-row:2;font-size:.78rem}
+  .result-item .dl{grid-column:4;grid-row:2;background:var(--accent-soft);padding:6px 14px}
+  .rename-input{font-size:16px}
 }
 
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
@@ -292,7 +337,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
     <p><b>Drag & drop images here</b> or click to browse</p>
     <p class="hint">Supports JPG, PNG, WebP, GIF, BMP — multiple files welcome</p>
   </div>
-  <input type="file" id="fileInput" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,image/jpeg,image/png,image/webp,image/gif,image/bmp" hidden>
+  <input type="file" id="fileInput" multiple accept="image/*" hidden>
   <div id="fileList"></div>
   <div id="err"></div>
   <div class="gifnote" id="gifNote">⚠️ Animated GIF detected: only the first frame will be converted (static image formats can't store animation).</div>
@@ -597,7 +642,17 @@ function renderFinal(it){ // edited + resized, returns canvas
 function canvasToBlob(c,fmt,q){
   return new Promise(res=>c.toBlob(b=>res(b),`image/${fmt}`,q));
 }
+
 function baseName(n){return n.replace(/\.[^.]+$/,'');}
+
+$('zipBtn').onclick=async()=>{
+  $('status').textContent='Creating ZIP…';
+  const zip=new JSZip();
+  allBlobs.forEach(b=>zip.file(b.name,b.blob));
+  const zblob=await zip.generateAsync({type:'blob'});
+  await saveBlob(zblob,`converted-images-${Date.now()}.zip`);
+  $('status').textContent='✅ ZIP ready.';
+};
 
 $('convertBtn').onclick=async()=>{
   if(!files.length)return;
@@ -634,14 +689,6 @@ async function convertIndividual(f){
   status.textContent = `✅ Done — ${count} file(s) converted.`;
   if(allBlobs.length>1){
     $('zipBtn').classList.remove('hidden');
-    $('zipBtn').onclick=async()=>{
-      status.textContent='Creating ZIP…';
-      const zip=new JSZip();
-      allBlobs.forEach(b=>zip.file(b.name,b.blob));
-      const zblob=await zip.generateAsync({type:'blob'});
-      await saveBlob(zblob,`converted-images-${Date.now()}.zip`);
-      status.textContent='✅ ZIP ready.'; 
-    };
   }
   setTimeout(()=>prog.style.display='none',1500);
 }
@@ -657,14 +704,51 @@ function confirmDialog(){
   });
 }
 
+const FILE_COLORS={pdf:'#ef6461',png:'#6fcf97',jpg:'#f2b84b',jpeg:'#f2b84b',webp:'#7c9cf2',zip:'#b98af2'};
+function fileIcon(name){
+  const ext=(name.split('.').pop()||'').toLowerCase();
+  const label=ext==='jpeg'?'jpg':ext;
+  const color=FILE_COLORS[ext]||'#8c8e96';
+  return `<span class="ftype" style="--ftype-color:${color}">${label.toUpperCase()}</span>`;
+}
+
+function applyName(el,name){
+  el.dataset.fullname=name;
+  el.classList.remove('marquee');
+  el.innerHTML='';
+  el.textContent=name;
+  if(!window.matchMedia('(max-width:560px)').matches)return;
+  requestAnimationFrame(()=>{
+    if(el.scrollWidth>el.clientWidth+2){
+      el.classList.add('marquee');
+      el.innerHTML=`<span class="scrollwrap"><span>${esc(name)}</span><span>${esc(name)}</span></span>`;
+      const wrap=el.querySelector('.scrollwrap');
+      const speed=28; // px per second — same for every filename
+      const distance=wrap.querySelector('span').scrollWidth;
+      wrap.style.animationDuration=(distance/speed)+'s';
+    }
+  });
+}
+
+let resizeTimer;
+window.addEventListener('resize',()=>{
+  clearTimeout(resizeTimer);
+  resizeTimer=setTimeout(()=>{
+    document.querySelectorAll('.result-item .rname[data-fullname]').forEach(el=>{
+      applyName(el,el.dataset.fullname);
+    });
+  },150);
+});
+
 function resultRow(item,size,url,extra){
   const d=document.createElement('div');d.className='result-item';
-  d.innerHTML=`<span>📄</span>
-    <span class="namewrap"><span class="rname">${esc(item.name)}</span><button class="rename" title="Rename">✏️</button></span>
-    <button class="trash" title="Remove"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7h16M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7m2 0v13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7h10Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-    <span style="color:var(--muted)">${extra}</span>
+  d.innerHTML=`${fileIcon(item.name)}
+    <span class="namewrap"><span class="rname"></span><button class="rename" title="Rename"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></span>
+    <button class="trash" title="Remove"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7h16M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7m2 0v13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V7h10Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="tlabel">Delete</span></button>
+    <span class="rsize">${extra}</span>
     <a href="${url}" download="${esc(item.name)}" class="dl">Download ⬇</a>`;
   const link=d.querySelector('.dl');
+  applyName(d.querySelector('.rname'),item.name);
   link.addEventListener('click',e=>{e.preventDefault();saveBlob(item.blob,item.name);});
 
   d.querySelector('.rename').onclick=()=>{
@@ -679,8 +763,9 @@ function resultRow(item,size,url,extra){
       const val=input.value.trim();
       item.name=(val||base)+ext;
       const span=document.createElement('span');
-      span.className='rname';span.textContent=item.name;
+      span.className='rname';
       input.replaceWith(span);
+      applyName(span,item.name);
       link.setAttribute('download',item.name);
     };
     input.addEventListener('blur',commit);
@@ -739,40 +824,66 @@ async function saveBlob(blob,suggestedName){
 const PDF_SIZES={a4:[595.28,841.89],letter:[612,792]}; // points
 async function makePDF(){
   const prog=$('progress');prog.style.display='block';
-  $('status').textContent='Building PDF…';
+  const mode=$('combine').value; // 'separate' or 'single'
   try{
     const {jsPDF}=window.jspdf;
     const [pw0,ph0]=PDF_SIZES[$('pdfSize').value];
     const margin=+$('pdfMargin').value*72/25.4; // mm → pt
     const orientSel=$('pdfOrient').value;
-    let doc=null;
+    const fitMode=$('pdfFit').value;
 
+    function pageSizeFor(c){
+      const orient=orientSel==='auto'?(c.width>c.height?'l':'p'):(orientSel==='l'?'l':'p');
+      const [pw,ph]=orient==='l'?[ph0,pw0]:[pw0,ph0];
+      return {orient,pw,ph};
+    }
+    function placement(c,pw,ph){
+      const availW=pw-2*margin, availH=ph-2*margin;
+      let dw,dh;
+      if(fitMode==='none'){dw=c.width;dh=c.height;}
+      else{
+        const s=fitMode==='fill'?Math.max(availW/c.width,availH/c.height):Math.min(availW/c.width,availH/c.height);
+        dw=c.width*s;dh=c.height*s;
+      }
+      return {x:(pw-dw)/2,y:(ph-dh)/2,dw,dh};
+    }
+
+    if(mode==='separate'){
+      for(let i=0;i<files.length;i++){
+        $('status').textContent=`Creating PDF ${i+1} / ${files.length}…`;
+        $('barFill').style.width=(10+90*i/files.length)+'%';
+        const c=renderFinal(files[i]);
+        const dataUrl=c.toDataURL('image/jpeg',+$('jpegQ').value/100||0.92);
+        const {orient,pw,ph}=pageSizeFor(c);
+        const doc=new jsPDF({unit:'pt',format:$('pdfSize').value,orientation:orient});
+        const {x,y,dw,dh}=placement(c,pw,ph);
+        doc.addImage(dataUrl,'JPEG',x,y,dw,dh);
+        const blob=doc.output('blob');
+        const url=URL.createObjectURL(blob);
+        const item={name:baseName(files[i].name)+'.pdf',blob};
+        allBlobs.push(item);
+        $('results').appendChild(resultRow(item,blob.size,url,'1 page'));
+      }
+      $('barFill').style.width='100%';
+      $('status').textContent='✅ PDFs ready.';
+      if(allBlobs.length>1)$('zipBtn').classList.remove('hidden');
+      setTimeout(()=>prog.style.display='none',1200);
+      return;
+    }
+
+    let doc=null;
     for(let i=0;i<files.length;i++){
       $('status').textContent=`Adding page ${i+1} / ${files.length}…`;
       $('barFill').style.width=(10+90*i/files.length)+'%';
       const c=renderFinal(files[i]);
       const dataUrl=c.toDataURL('image/jpeg',+$('jpegQ').value/100||0.92);
-
-      let orient;
-      if(orientSel==='auto') orient=c.width>c.height?'l':'p';
-      else orient=orientSel==='l'?'l':'p';
-      const [pw,ph]=orient==='l'?[ph0,pw0]:[pw0,ph0];
-
+      const {orient,pw,ph}=pageSizeFor(c);
       if(!doc){
         doc=new jsPDF({unit:'pt',format:$('pdfSize').value,orientation:orient});
       }else{
         doc.addPage($('pdfSize').value,orient);
       }
-
-      const availW=pw-2*margin, availH=ph-2*margin;
-      const mode=$('pdfFit').value;
-      let dw,dh;
-      if(mode==='none'){dw=c.width;dh=c.height;}
-      else{
-        const s=mode==='fill'?Math.max(availW/c.width,availH/c.height):Math.min(availW/c.width,availH/c.height);
-        dw=c.width*s;dh=c.height*s;
-      }
-      const x=(pw-dw)/2, y=(ph-dh)/2;
+      const {x,y,dw,dh}=placement(c,pw,ph);
       doc.addImage(dataUrl,'JPEG',x,y,dw,dh);
     }
     $('barFill').style.width='100%';
@@ -781,6 +892,7 @@ async function makePDF(){
     const url=URL.createObjectURL(blob);
     const name=files.length===1?baseName(files[0].name)+'.pdf':`converted-${Date.now()}.pdf`;
     const item={name,blob};
+    allBlobs.push(item);
     $('results').appendChild(resultRow(item,blob.size,url,`${files.length} page(s)`));
     $('pdfDlBtn').classList.remove('hidden');
     $('pdfDlBtn').onclick=()=>saveBlob(item.blob,item.name);
