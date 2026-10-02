@@ -20,6 +20,7 @@ Changelog:
 - 1.0.2 (2026-09-28): Phone compatibility and better user experience.
 - 1.1.0 (2026-09-28): Added converting history, including file name edit and seperate file removing.
 - 1.1.1 (2026-09-30): Phone compatibility, GUI adjustments, PDF convertion fix, 'Download All' bug fix.
+- 1.1.2 (2026-10-02): Multiple files on phone fixed.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -467,7 +468,11 @@ const allBlobs=[]; // keeps every converted result until "Clear list"
 /* ---------- Adding files ---------- */
 const dz=$('dropzone'), fi=$('fileInput');
 dz.onclick=()=>fi.click();
-fi.onchange=e=>{addFiles(e.target.files);fi.value='';};
+fi.onchange=e=>{
+  const picked=Array.from(e.target.files); // snapshot now, before clearing input
+  fi.value='';
+  addFiles(picked);
+};
 ['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
 ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
 dz.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
