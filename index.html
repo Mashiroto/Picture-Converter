@@ -1,6 +1,6 @@
 <!--
 Picture Converter
-Version: 1.1.3
+Version: 1.2.0
 Author: Mashiroto (with Claude)
 
 Description:
@@ -21,7 +21,8 @@ Changelog:
 - 1.1.0 (2026-09-28): Added converting history, including file name edit and seperate file removing.
 - 1.1.1 (2026-09-30): Phone compatibility, GUI adjustments, PDF convertion fix, 'Download All' bug fix.
 - 1.1.2 (2026-10-02): Multiple files at once from phone now possible.
-- 1.1.3 (2026-10-03): Added preview feature for converted files.
+- 1.1.3 (2026-10-03): Added preview feature.
+- 1.2.0 (2026.10.04): Added GIF frame picker.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -175,9 +176,17 @@ header p{color:var(--muted);font-size:.95rem;max-width:440px}
 }
 
 .thumb .gifwarn{
-  position:absolute;bottom:44px;left:7px;background:rgba(8,9,11,.85);color:#ffcf7a;
+  position:absolute;bottom:56px;left:7px;background:rgba(8,9,11,.85);color:#ffcf7a;
   font-size:.65rem;padding:3px 7px;border-radius:6px;border:1px solid var(--border);
 }
+.thumb .gifwarn.gifpick{font-family:var(--font-body);cursor:pointer;transition:.15s ease}
+.thumb .gifwarn.gifpick:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+
+/* Frame picker modal */
+.fp-slider-row{width:100%;display:flex;flex-direction:column;gap:8px}
+#fpSlider{width:100%}
+.fp-meta{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted)}
+
 .gifnote{
   margin-top:12px;font-size:.82rem;color:#ffcf7a;background:rgba(255,207,122,.08);
   border:1px solid rgba(255,207,122,.25);border-radius:var(--radius-sm);padding:10px 14px;display:none;
@@ -372,7 +381,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
   <input type="file" id="fileInput" multiple accept="image/*" hidden>
   <div id="fileList"></div>
   <div id="err"></div>
-  <div class="gifnote" id="gifNote">⚠️ Animated GIF detected: only the first frame will be converted (static image formats can't store animation).</div>
+  <div class="gifnote" id="gifNote">⚠️ Animated GIF detected: only one frame will be used on converting, please choose wich frame you want!</div>
 </div>
 
 <!-- 2. Output format -->
@@ -499,9 +508,154 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
   </div>
 </div>
 
+<div id="framePickerModal" class="modal-overlay hidden">
+  <div class="preview-box" style="max-width:520px">
+    <div class="preview-head">
+      <span class="preview-title">Pick a frame</span>
+      <button class="preview-x" id="fpClose" title="Close">✕</button>
+    </div>
+    <div class="preview-body" style="flex-direction:column;gap:14px;padding:20px 20px 24px">
+      <canvas id="fpCanvas" style="max-width:100%;max-height:48vh;border-radius:8px;background:#0a0b0d"></canvas>
+      <div class="fp-slider-row">
+        <input type="range" id="fpSlider" min="0" max="0" value="0" disabled>
+        <div class="fp-meta">
+          <span>Frame <span id="fpIndex">1</span> / <span id="fpTotal">1</span></span>
+          <span id="fpNote"></span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary small" id="fpCancel">Cancel</button>
+        <button class="btn small" id="fpConfirm" disabled>Use this frame</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
+
+/* ---------- Minimal built-in animated GIF frame decoder (no dependencies, runs locally) ---------- */
+const GifParser=(()=>{
+  function parseGIF(buf){
+    const b=new Uint8Array(buf);let p=0;
+    const readByte=()=>b[p++];
+    const readShort=()=>{const v=b[p]|(b[p+1]<<8);p+=2;return v;};
+    const sig=String.fromCharCode(b[0],b[1],b[2],b[3],b[4],b[5]);p=6;
+    if(sig!=='GIF87a'&&sig!=='GIF89a')throw new Error('Not a GIF file');
+    const width=readShort(),height=readShort();
+    const packed=readByte();
+    const gctFlag=(packed&0x80)!==0, gctSize=2<<(packed&0x07);
+    readByte();readByte(); // bg color index, pixel aspect ratio
+    function readColorTable(size){const t=[];for(let i=0;i<size;i++)t.push([readByte(),readByte(),readByte()]);return t;}
+    const gct=gctFlag?readColorTable(gctSize):null;
+    function skipSubBlocks(){let s;while((s=readByte())!==0)p+=s;}
+    function readSubBlocks(){const bytes=[];let s;while((s=readByte())!==0){for(let i=0;i<s;i++)bytes.push(readByte());}return new Uint8Array(bytes);}
+    const frames=[];let gce=null;
+    while(p<b.length){
+      const block=readByte();
+      if(block===0x21){
+        const label=readByte();
+        if(label===0xF9){
+          readByte(); // block size, always 4
+          const flags=readByte();
+          const delay=readShort();
+          const transparentIndex=readByte();
+          readByte(); // terminator
+          gce={disposal:(flags>>2)&0x07,transparentFlag:(flags&0x01)!==0,transparentIndex,delay:delay*10};
+        }else skipSubBlocks();
+      }else if(block===0x2C){
+        const left=readShort(),top=readShort(),w=readShort(),h=readShort();
+        const packed2=readByte();
+        const lctFlag=(packed2&0x80)!==0, lctSize=2<<(packed2&0x07);
+        const lct=lctFlag?readColorTable(lctSize):null;
+        const minCodeSize=readByte();
+        const data=readSubBlocks();
+        const indices=lzwDecode(minCodeSize,data,w*h);
+        frames.push({left,top,width:w,height:h,indices,colorTable:lct||gct,
+          disposal:gce?gce.disposal:0,transparentFlag:gce?gce.transparentFlag:false,
+          transparentIndex:gce?gce.transparentIndex:-1,delay:gce?gce.delay:100});
+        gce=null;
+      }else if(block===0x3B)break; // trailer
+      else break; // unexpected/corrupt
+    }
+    return {width,height,frames};
+  }
+
+  function lzwDecode(minCodeSize,data,pixelCount){
+    const clearCode=1<<minCodeSize, eoiCode=clearCode+1;
+    let codeSize,dict;
+    function resetDict(){
+      dict=[];for(let i=0;i<clearCode;i++)dict[i]=[i];
+      dict[clearCode]=[];dict[eoiCode]=null;codeSize=minCodeSize+1;
+    }
+    resetDict();
+    const out=new Uint8Array(pixelCount);let outPos=0;
+    let bitBuf=0,bitLen=0,dataPos=0;
+    function readCode(){
+      while(bitLen<codeSize){
+        if(dataPos>=data.length)return eoiCode;
+        bitBuf|=data[dataPos++]<<bitLen;bitLen+=8;
+      }
+      const code=bitBuf&((1<<codeSize)-1);
+      bitBuf>>=codeSize;bitLen-=codeSize;
+      return code;
+    }
+    let prev=null;
+    while(outPos<pixelCount){
+      const code=readCode();
+      if(code===clearCode){resetDict();prev=null;continue;}
+      if(code===eoiCode)break;
+      let entry;
+      if(dict[code])entry=dict[code];
+      else if(code===dict.length&&prev)entry=prev.concat([prev[0]]);
+      else break;
+      for(let i=0;i<entry.length&&outPos<pixelCount;i++)out[outPos++]=entry[i];
+      if(prev){
+        dict.push(prev.concat([entry[0]]));
+        if(dict.length===(1<<codeSize)&&codeSize<12)codeSize++;
+      }
+      prev=entry;
+    }
+    return out;
+  }
+
+  // Composites all frames into full-size canvases, honoring GIF disposal methods
+  function buildFrames(gif){
+    const {width,height,frames}=gif;
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext('2d');
+    const result=[];
+    for(const f of frames){
+      let restoreSnapshot=null;
+      if(f.disposal===3)restoreSnapshot=ctx.getImageData(0,0,width,height);
+
+      const fc=document.createElement('canvas');fc.width=f.width;fc.height=f.height;
+      const fctx=fc.getContext('2d');
+      const imgData=fctx.createImageData(f.width,f.height);
+      const table=f.colorTable||[];
+      for(let i=0;i<f.indices.length;i++){
+        const idx=f.indices[i],o=i*4;
+        if(f.transparentFlag&&idx===f.transparentIndex){imgData.data[o+3]=0;}
+        else{const rgb=table[idx]||[0,0,0];imgData.data[o]=rgb[0];imgData.data[o+1]=rgb[1];imgData.data[o+2]=rgb[2];imgData.data[o+3]=255;}
+      }
+      fctx.putImageData(imgData,0,0);
+      ctx.drawImage(fc,f.left,f.top);
+
+      const snap=document.createElement('canvas');snap.width=width;snap.height=height;
+      snap.getContext('2d').drawImage(canvas,0,0);
+      result.push({canvas:snap,delay:f.delay||100});
+
+      if(f.disposal===2)ctx.clearRect(f.left,f.top,f.width,f.height);
+      else if(f.disposal===3&&restoreSnapshot)ctx.putImageData(restoreSnapshot,0,0);
+    }
+    return result;
+  }
+
+  return {parseGIF,buildFrames};
+})();
+
 const $=id=>document.getElementById(id);
+
 const ACCEPT={jpg:1,jpeg:1,png:1,webp:1,gif:1,bmp:1};
 const files=[]; // {file, name, size, bitmap, canvas, hasAlpha, animated}
 const allBlobs=[]; // keeps every converted result until "Clear list"
@@ -567,9 +721,11 @@ function render(){
     div.innerHTML=`<div class="imgwrap"><img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div>
       <div class="meta"><div class="name">${esc(it.name)}</div><div class="size">${fmtSize(it.size)}${dimStr(it)}</div></div>
       <button class="x" title="Remove">✕</button>
-      ${it.animated?'<div class="gifwarn">animated → 1st frame</div>':''}`;
+      ${it.animated?`<button type="button" class="gifwarn gifpick" title="Pick a different frame">${gifBadgeText(it)}</button>`:''}`;
     drawThumb(it,div.querySelector('img'));
     div.querySelector('.x').onclick=()=>{files.splice(i,1);render();};
+    const gifBtn=div.querySelector('.gifpick');
+    if(gifBtn)gifBtn.addEventListener('click',e=>{e.stopPropagation();openFramePicker(it);});
     div.addEventListener('dragstart',()=>{dragIdx=i;div.classList.add('dragging');});
     div.addEventListener('dragend',()=>{div.classList.remove('dragging');dragIdx=null;});
     div.addEventListener('dragover',e=>{e.preventDefault();if(dragIdx!==null&&dragIdx!==i)div.classList.add('over');});
@@ -605,6 +761,70 @@ function editedCanvas(it){
   g.drawImage(it.bmp,-w/2,-h/2);
   return c;
 }
+
+function gifBadgeText(it){
+  if(it.gifFrames&&it.gifFrames.frames.length>1){
+    return `🎞 frame ${(it.gifSelectedIndex||0)+1}/${it.gifFrames.frames.length}`;
+  }
+  return '🎞 pick frame';
+}
+
+/* ---------- GIF frame picker ---------- */
+let fpItem=null,fpFrames=[],fpIndex=0;
+
+async function openFramePicker(item){
+  $('framePickerModal').classList.remove('hidden');
+  $('fpSlider').disabled=true;$('fpConfirm').disabled=true;
+  $('fpNote').textContent='Decoding frames…';
+  $('fpCanvas').getContext('2d').clearRect(0,0,$('fpCanvas').width,$('fpCanvas').height);
+  try{
+    if(!item.gifFrames){
+      const buf=await item.file.arrayBuffer();
+      const parsed=GifParser.parseGIF(buf);
+      item.gifFrames={width:parsed.width,height:parsed.height,frames:GifParser.buildFrames(parsed)};
+      if(item.gifSelectedIndex===undefined)item.gifSelectedIndex=0;
+    }
+  }catch(err){
+    console.error(err);
+    $('fpNote').textContent='❌ Could not read GIF frames: '+err.message;
+    return;
+  }
+  const frames=item.gifFrames.frames;
+  if(frames.length<2){
+    $('fpNote').textContent='This GIF only has one frame.';
+    return;
+  }
+  fpItem=item;fpFrames=frames;fpIndex=item.gifSelectedIndex||0;
+  $('fpSlider').min=0;$('fpSlider').max=frames.length-1;$('fpSlider').value=fpIndex;$('fpSlider').disabled=false;
+  $('fpTotal').textContent=frames.length;
+  $('fpConfirm').disabled=false;$('fpNote').textContent='';
+  updateFramePickerPreview();
+}
+
+function updateFramePickerPreview(){
+  const f=fpFrames[fpIndex];
+  const cv=$('fpCanvas');
+  cv.width=f.canvas.width;cv.height=f.canvas.height;
+  cv.getContext('2d').drawImage(f.canvas,0,0);
+  $('fpIndex').textContent=fpIndex+1;
+}
+
+$('fpSlider').addEventListener('input',e=>{fpIndex=+e.target.value;updateFramePickerPreview();});
+
+function closeFramePicker(){$('framePickerModal').classList.add('hidden');fpItem=null;}
+$('fpCancel').onclick=closeFramePicker;
+$('fpClose').onclick=closeFramePicker;
+$('framePickerModal').addEventListener('click',e=>{if(e.target.id==='framePickerModal')closeFramePicker();});
+
+$('fpConfirm').onclick=async()=>{
+  const item=fpItem,frame=fpFrames[fpIndex];
+  if(!item)return;
+  item.gifSelectedIndex=fpIndex;
+  item.bmp=await createImageBitmap(frame.canvas);
+  item.canvas=null;
+  closeFramePicker();
+  render();
+};
 
 const esc=s=>s.replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':(b/1024).toFixed(0)+' KB';
