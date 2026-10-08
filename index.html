@@ -1,13 +1,13 @@
 <!--
 Picture Converter
-Version: 1.2.1
+Version: 1.2.2
 Author: Mashiroto (with Claude)
 
 Description:
 Fully client-side image converter - no upload, 
 no server, all processing happens in the browser!
 
-Supported input: JPG, PNG, WebP, GIF (static, first frame only), BMP
+Supported input: JPG, PNG, WebP, GIF (static, one frame only), BMP, ZIP.
 Supported output: JPG, PNG, WebP, PDF (single or multi-page)
 
 Dependencies (loaded via CDN, both must stay pinned to these versions):
@@ -15,6 +15,7 @@ Dependencies (loaded via CDN, both must stay pinned to these versions):
 - JSZip 3.10.1
 
 Changelog:
+- 1.2.2 (2026-10-08): Collapsible cards, Ctrl + V, Preview tab, ZIP file input.
 - 1.2.1 (2026-10-07): GIF filename toggle, optical adjustments.
 - 1.2.0 (2026-10-04): Added GIF frame picker.
 - 1.1.3 (2026-10-03): Added preview feature.
@@ -362,8 +363,20 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
 .preview-x:hover{background:var(--danger-soft);color:var(--danger)}
 .preview-body{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto;background:var(--panel-2)}
 .preview-body img{max-width:100%;max-height:70vh;border-radius:8px;display:block}
-.preview-body iframe{width:100%;height:70vh;border:none;border-radius:8px;background:#fff}
 
+/* Collapsible cards */
+.card h2{cursor:pointer;user-select:none;padding:14px 24px;margin:-14px -24px 2px}
+.card h2::after{
+  content:'';margin-left:auto;width:8px;height:8px;flex:none;
+  border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+  transform:rotate(45deg);transition:transform .2s ease,border-color .15s ease;
+}
+.card h2:hover::after{border-color:var(--accent)}
+.card.collapsed h2::after{transform:rotate(-45deg)}
+.card.collapsed h2{margin-bottom:-14px}
+.card.collapsed > :not(h2){display:none!important}
+
+.newest-label{text-align:center;font-size:.75rem;color:var(--muted);letter-spacing:.04em;padding-top:4px}
 </style>
 </head>
 <body>
@@ -386,9 +399,9 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
   <div id="dropzone">
     <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <p><b>Drag & drop images here</b> or click to browse</p>
-    <p class="hint">Supports JPG, PNG, WebP, GIF, BMP — multiple files welcome</p>
+    <p class="hint">Supports JPG, PNG, WebP, GIF, BMP and ZIP — multiple files welcome</p>
   </div>
-  <input type="file" id="fileInput" multiple accept="image/*" hidden>
+  <input type="file" id="fileInput" multiple accept="image/*,.zip,application/zip" hidden>
   <div id="fileList"></div>
   <div id="err"></div>
   <div class="gifnote" id="gifNote">⚠️ Animated GIF detected: only one frame will be used on converting, please choose wich frame you want!</div>
@@ -455,7 +468,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
 </div>
 
 <!-- 3. Resize -->
-<div class="card">
+<div class="card collapsed">
   <h2><span class="num">3</span> Resize (optional)</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" id="presets">
     <button class="preset active" data-w="0" data-h="0">Original size</button>
@@ -473,7 +486,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
 </div>
 
 <!-- 4. Edit -->
-<div class="card">
+<div class="card collapsed">
   <h2><span class="num">4</span> Edit (applies to all images)</h2>
   <div class="row">
     <button class="btn secondary small" id="rotCW">↻ Rotate 90° CW</button>
@@ -689,8 +702,56 @@ dz.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
 // also allow dropping onto the thumbnail grid to append
 $('fileList').addEventListener('dragover',e=>e.preventDefault());
 
+/* ---------- Paste from clipboard (Ctrl+V) ---------- */
+document.addEventListener('paste',e=>{
+  const cd=e.clipboardData;
+  if(!cd)return;
+  const pasted=[];
+  for(const item of cd.items){
+    if(item.kind!=='file'||!item.type.startsWith('image/'))continue;
+    const f=item.getAsFile();
+    if(!f)continue;
+    const ext=(f.name.split('.').pop()||'').toLowerCase();
+    // screenshots are often just called "image.png" -> give them a unique name
+    const generic=!ACCEPT[ext]||/^image\.\w+$/i.test(f.name);
+    pasted.push(generic
+      ? new File([f],`pasted-${Date.now()}-${pasted.length+1}.${f.type.split('/')[1].replace('jpeg','jpg')}`,{type:f.type})
+      : f);
+  }
+  if(!pasted.length)return; // no image in clipboard -> normal paste (e.g. into number fields) still works
+  e.preventDefault();
+  addFiles(pasted);
+});
+
+const MIME_BY_EXT={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',gif:'image/gif',bmp:'image/bmp'};
+
+// unpacks .zip files into their images, passes everything else through
+async function expandZips(list){
+  const out=[];
+  for(const f of list){
+    if(!/\.zip$/i.test(f.name)){out.push(f);continue;}
+    try{
+      const zip=await JSZip.loadAsync(f);
+      const entries=Object.values(zip.files).filter(z=>
+        !z.dir && !z.name.startsWith('__MACOSX/') && MIME_BY_EXT[(z.name.split('.').pop()||'').toLowerCase()]);
+      if(!entries.length){showErr(`❌ "${f.name}" contains no supported images.`);continue;}
+      for(const z of entries){
+        const ext=z.name.split('.').pop().toLowerCase();
+        const blob=await z.async('blob');
+        out.push(new File([blob],z.name.split('/').pop(),{type:MIME_BY_EXT[ext]}));
+      }
+    }catch(err){
+      console.error(err);
+      showErr(`❌ Could not open "${f.name}": ${err.message}`);
+    }
+  }
+  return out;
+}
+
 async function addFiles(list){
+  list=Array.from(list); // snapshot first (drag & drop lists can empty out while awaiting)
   hideErr();
+  list=await expandZips(list);
   let gifFound=false;
   for(const f of list){
     const ext=(f.name.split('.').pop()||'').toLowerCase();
@@ -1083,7 +1144,15 @@ function resultRow(item,size,url,extra){
     input.addEventListener('keydown',e=>{if(e.key==='Enter')input.blur();});
   };
 
-  d.querySelector('.preview').onclick=()=>openPreview(item,url);
+  const pvBtn=d.querySelector('.preview');
+  pvBtn.onclick=()=>openPreview(item,url);
+  // middle mouse button -> open the converted file in a new tab
+  pvBtn.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault();}); // stops the Windows scroll circle
+  pvBtn.addEventListener('auxclick',e=>{
+    if(e.button!==1)return;
+    e.preventDefault();
+    window.open(url,'_blank');
+  });
 
   d.querySelector('.trash').onclick=async()=>{
     const sure=await confirmDialog();
@@ -1217,6 +1286,22 @@ async function makePDF(){
 
 /* ---------- Clear ---------- */
 $('clearBtn').onclick=()=>{files.length=0; allBlobs.length=0; $('results').innerHTML=''; $('zipBtn').classList.add('hidden'); $('pdfDlBtn').classList.add('hidden'); render(); hideErr();};
+
+/* ---------- Collapsible cards ---------- */
+document.querySelectorAll('.card > h2').forEach(h=>{
+  h.addEventListener('click',()=>h.parentElement.classList.toggle('collapsed'));
+});
+
+/* ---------- "newest conversion" label ---------- */
+const newestLabel=document.createElement('div');
+newestLabel.className='newest-label';
+newestLabel.textContent='↑ newest conversion ↑';
+function syncNewestLabel(){
+  const res=$('results');
+  if(!res.querySelector('.result-item')){newestLabel.remove();return;}
+  if(res.lastElementChild!==newestLabel)res.appendChild(newestLabel);
+}
+new MutationObserver(syncNewestLabel).observe($('results'),{childList:true});
 </script>
 </body>
 </html>
