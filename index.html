@@ -1,6 +1,6 @@
 <!--
 Picture Converter
-Version: 1.2.2
+Version: 1.3.0
 Author: Mashiroto (with Claude)
 
 Description:
@@ -15,13 +15,14 @@ Dependencies (loaded via CDN, both must stay pinned to these versions):
 - JSZip 3.10.1
 
 Changelog:
+- 1.3.0 (2026-10-09): Image editor, with cutting feature and color adjustments.
 - 1.2.2 (2026-10-08): Collapsible cards, Ctrl + V, Preview tab, ZIP file input.
 - 1.2.1 (2026-10-07): GIF filename toggle, optical adjustments.
 - 1.2.0 (2026-10-04): Added GIF frame picker.
 - 1.1.3 (2026-10-03): Added preview feature.
 - 1.1.2 (2026-10-02): Multiple files at once from phone now possible.
-- 1.1.1 (2026-09-30): Phone compatibility, GUI adjustments, convertion fix, 'Download All' bug fix.
-- 1.1.0 (2026-09-28): Added converting history, including file edit and seperate file removing.
+- 1.1.1 (2026-09-30): Phone compatibility, GUI adjustments, conversion fix, 'Download All' bug fix.
+- 1.1.0 (2026-09-28): Added converting history, including file edit and separate file removing.
 - 1.0.2 (2026-09-28): Phone compatibility and better user experience.
 - 1.0.1 (2026-09-26): Download bug fix, optical adjustments.
 - 1.0.0 (2026-09-23): Initial public version.
@@ -362,7 +363,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
 }
 .preview-x:hover{background:var(--danger-soft);color:var(--danger)}
 .preview-body{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto;background:var(--panel-2)}
-.preview-body img{max-width:100%;max-height:70vh;border-radius:8px;display:block}
+.preview-body iframe{width:100%;height:70vh;border:none;border-radius:8px;background:#fff}
 
 /* Collapsible cards */
 .card h2{cursor:pointer;user-select:none;padding:14px 24px;margin:-14px -24px 2px}
@@ -377,6 +378,61 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
 .card.collapsed > :not(h2){display:none!important}
 
 .newest-label{text-align:center;font-size:.75rem;color:var(--muted);letter-spacing:.04em;padding-top:4px}
+
+/* Image editor: thumbnail overlay */
+.thumb .imgwrap{position:relative;cursor:pointer}
+.edit-overlay{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(10,11,13,.55);opacity:0;transition:opacity .15s ease;pointer-events:none;
+}
+.edit-overlay span{font-size:.8rem;font-weight:600;color:#fff;letter-spacing:.03em}
+.thumb .imgwrap:hover .edit-overlay{opacity:1}
+@media (hover:none){ /* phones: always visible, lighter filter */
+  .edit-overlay{opacity:1;background:rgba(10,11,13,.12);align-items:flex-end;padding-bottom:6px}
+  .edit-overlay span{background:rgba(8,9,11,.65);padding:2px 10px;border-radius:99px;font-size:.7rem}
+}
+
+/* Image editor: popup */
+.editor-box{
+  background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--radius);
+  width:100%;max-width:1000px;max-height:92vh;display:flex;flex-direction:column;
+  box-shadow:var(--shadow);animation:modalIn .18s ease;overflow:hidden;
+}
+.editor-main{display:flex;flex:1;min-height:0}
+.editor-stage{flex:1;display:flex;align-items:center;justify-content:center;padding:14px;background:var(--panel-2);min-width:0;overflow:hidden}
+.editor-stage canvas{
+  max-width:100%;max-height:68vh;border-radius:8px;
+  background:conic-gradient(#2a2d33 25%,#1c1e22 0 50%,#2a2d33 0 75%,#1c1e22 0) 0 0/16px 16px;
+}
+.editor-side{width:280px;flex:none;border-left:1px solid var(--border);padding:16px;overflow-y:auto;font-size:.85rem;color:var(--muted)}
+.editor-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 16px;border-top:1px solid var(--border)}
+@media (max-width:760px){
+  .editor-main{flex-direction:column;overflow-y:auto}
+  .editor-side{width:auto;border-left:none;border-top:1px solid var(--border)}
+}
+
+/* Image editor: crop panel */
+#edCanvas{cursor:grab;touch-action:none}
+#edCanvas:active{cursor:grabbing}
+.ed-sec{margin-bottom:18px}
+.ed-label{display:flex;justify-content:space-between;color:var(--text);font-weight:600;margin-bottom:8px}
+.ed-ratios{display:flex;gap:6px;flex-wrap:wrap}
+.ed-hint{margin-top:8px;font-size:.75rem;line-height:1.45}
+
+/* Image editor: fixed stage + cut mode */
+.editor-stage{height:70vh;min-height:300px}
+.editor-stage canvas{max-width:100%;max-height:100%}
+.ed-off{opacity:.35;pointer-events:none}
+@media (max-width:760px){.editor-stage{height:50vh;min-height:240px}}
+
+.ed-adj{margin-bottom:10px}
+.ed-adj .ed-label{font-weight:400;margin-bottom:2px}
+
+.thumb .edited-badge{
+  position:absolute;top:7px;left:7px;background:rgba(8,9,11,.75);backdrop-filter:blur(4px);
+  color:var(--accent);font-size:.65rem;padding:3px 7px;border-radius:6px;
+  border:1px solid var(--border);pointer-events:none;
+}
 </style>
 </head>
 <body>
@@ -398,13 +454,13 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
   <h2><span class="num">1</span> Add images</h2>
   <div id="dropzone">
     <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 16V4m0 0 4 4m-4-4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <p><b>Drag & drop images here</b> or click to browse</p>
+    <p><b>Drag &amp; drop images here</b> or click to browse</p>
     <p class="hint">Supports JPG, PNG, WebP, GIF, BMP and ZIP — multiple files welcome</p>
   </div>
   <input type="file" id="fileInput" multiple accept="image/*,.zip,application/zip" hidden>
   <div id="fileList"></div>
   <div id="err"></div>
-  <div class="gifnote" id="gifNote">⚠️ Animated GIF detected: only one frame will be used on converting, please choose wich frame you want!</div>
+  <div class="gifnote" id="gifNote">⚠️ Animated GIF detected: only one frame will be used on converting, please choose which frame you want!</div>
 </div>
 
 <!-- 2. Output format -->
@@ -415,7 +471,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
       <label>Format</label>
       <select id="fmt">
         <option value="jpeg">JPG / JPEG</option>
-        <option value="png">PNG</option>
+        <option value="png" selected>PNG</option>
         <option value="webp">WebP</option>
         <option value="pdf">PDF</option>
       </select>
@@ -532,6 +588,63 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;margin-top:30px}
       <button class="preview-x" id="previewClose" title="Close">✕</button>
     </div>
     <div class="preview-body" id="previewBody"></div>
+  </div>
+</div>
+
+<div id="editorModal" class="modal-overlay hidden">
+  <div class="editor-box">
+    <div class="preview-head">
+      <span class="preview-title" id="edTitle"></span>
+      <button class="preview-x" id="edClose" title="Close">✕</button>
+    </div>
+    <div class="editor-main">
+      <div class="editor-stage"><canvas id="edCanvas"></canvas></div>
+      <div class="editor-side" id="edSide">
+        <div class="ed-sec">
+          <button class="btn secondary small" id="edCutBtn">✂ Cut edges</button>
+          <button class="btn secondary small hidden" id="edCutReset">Reset cut</button>
+          <div class="ed-hint">Drag the edges or corners to cut away parts of the image. Drag inside the frame to move it.</div>
+        </div>
+        <div id="edFrameCtl">
+          <div class="ed-sec">
+            <div class="ed-label">Crop frame</div>
+            <div class="ed-ratios" id="edRatios">
+              <button class="preset active" data-r="0">Original</button>
+              <button class="preset" data-r="1">1:1</button>
+              <button class="preset" data-r="1.3333">4:3</button>
+              <button class="preset" data-r="0.75">3:4</button>
+              <button class="preset" data-r="1.7778">16:9</button>
+              <button class="preset" data-r="0.5625">9:16</button>
+              <button class="preset" data-r="1.5">3:2</button>
+            </div>
+          </div>
+          <div class="ed-sec">
+            <div class="ed-label">Zoom <span id="edZoomVal">100%</span></div>
+            <input type="range" id="edZoom" min="30" max="400" value="100" style="width:100%">
+        <div class="ed-hint">Drag the image to move it, mouse wheel to zoom.</div>
+      </div>
+      <div class="ed-sec">
+        <div class="ed-label">Background</div>
+        <div class="ed-ratios" id="edBgModes">
+          <button class="preset active" data-m="auto">Auto</button>
+          <button class="preset" data-m="color">Color</button>
+          <button class="preset" data-m="transparent">Transparent</button>
+        </div>
+        <input type="color" id="edBgColor" value="#ffffff" style="margin-top:8px">
+        <div class="ed-hint">Auto = black for dark images, white for bright ones. Transparent only works for PNG and WebP, JPG and PDF use the auto color instead.</div>
+      </div>
+    </div>
+      <div class="ed-sec">
+        <div class="ed-label">Adjustments</div>
+        <div id="edAdj"></div>
+      </div>
+        <button class="btn secondary small" id="edReset">Reset all</button>
+      </div>
+    </div>
+    <div class="editor-foot">
+      <button class="btn secondary small" id="edCancel">Cancel</button>
+      <button class="btn small" id="edApply">Apply</button>
+    </div>
   </div>
 </div>
 
@@ -684,7 +797,7 @@ const GifParser=(()=>{
 const $=id=>document.getElementById(id);
 
 const ACCEPT={jpg:1,jpeg:1,png:1,webp:1,gif:1,bmp:1};
-const files=[]; // {file, name, size, bitmap, canvas, hasAlpha, animated}
+const files=[]; // {file, name, size, bmp, canvas, hasAlpha, animated}
 const allBlobs=[]; // keeps every converted result until "Clear list"
 
 /* ---------- Adding files ---------- */
@@ -793,11 +906,13 @@ function render(){
   const list=$('fileList');list.innerHTML='';
   files.forEach((it,i)=>{
     const div=document.createElement('div');div.className='thumb';div.draggable=true;
-    div.innerHTML=`<div class="imgwrap"><img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="></div>
+    div.innerHTML=`<div class="imgwrap"><img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="><div class="edit-overlay"><span>✎ Edit</span></div></div>
       <div class="meta"><div class="name">${esc(it.name)}</div><div class="size">${fmtSize(it.size)}${dimStr(it)}</div></div>
       <button class="x" title="Remove">✕</button>
+      ${isDefaultCrop(it.crop)?'':'<span class="edited-badge">✎ Edited</span>'}
       ${it.animated?`<button type="button" class="gifwarn gifpick" title="Pick a different frame">${gifBadgeText(it)}</button>`:''}`;
     drawThumb(it,div.querySelector('img'));
+    div.querySelector('.imgwrap').addEventListener('click',()=>openEditor(it));
     div.querySelector('.x').onclick=()=>{files.splice(i,1);render();};
     const gifBtn=div.querySelector('.gifpick');
     if(gifBtn)gifBtn.addEventListener('click',e=>{e.stopPropagation();openFramePicker(it);});
@@ -824,6 +939,13 @@ function drawThumb(it,img){
 }
 
 function editedCanvas(it){
+  let r=rotatedCanvas(it);
+  if(isDefaultCrop(it.crop))return r;
+  r=applyCut(r,it.crop);
+  return cropCanvas(r,it.crop,8192,cropBgColor(it,it.crop));
+}
+
+function rotatedCanvas(it){
   const w=it.bmp.width,h=it.bmp.height;
   const rot=((it.rot%4)+4)%4;
   const swap=rot%2===1;
@@ -896,7 +1018,7 @@ $('fpConfirm').onclick=async()=>{
   if(!item)return;
   item.gifSelectedIndex=fpIndex;
   item.bmp=await createImageBitmap(frame.canvas);
-  item.canvas=null;
+  item.canvas=null;item.lum=undefined;
   closeFramePicker();
   render();
 };
@@ -957,13 +1079,13 @@ function targetSize(src){
 }
 $('resW').addEventListener('input',()=>{
   if($('lockAR').checked && $('resW').value && files[0]){
-    const ar=files[0].bmp.width/files[0].bmp.height;
+    const ec=editedCanvas(files[0]);const ar=ec.width/ec.height;
     $('resH').value=Math.round($('resW').value/ar);
   }
 });
 $('resH').addEventListener('input',()=>{
   if($('lockAR').checked && $('resH').value && files[0]){
-    const ar=files[0].bmp.width/files[0].bmp.height;
+    const ec=editedCanvas(files[0]);const ar=ec.width/ec.height;
     $('resW').value=Math.round($('resH').value*ar);
   }
 });
@@ -972,10 +1094,12 @@ $('resH').addEventListener('input',()=>{
 function renderFinal(it){ // edited + resized, returns canvas
   const src=editedCanvas(it);
   const {w,h}=targetSize(src);
-  if(w===src.width&&h===src.height)return src;
+  const fmt=$('fmt').value;
+  const needsBg=fmt==='jpeg'||fmt==='pdf';
+  if(w===src.width&&h===src.height&&!needsBg)return src;
   const c=document.createElement('canvas');c.width=w;c.height=h;
   const g=c.getContext('2d');
-  if($('fmt').value==='jpeg'){g.fillStyle=$('bgColor').value;g.fillRect(0,0,w,h);}
+  if(needsBg){g.fillStyle=fmt==='jpeg'?$('bgColor').value:'#ffffff';g.fillRect(0,0,w,h);}
   g.imageSmoothingQuality='high';
   g.drawImage(src,0,0,w,h);
   return c;
@@ -991,12 +1115,20 @@ function gifSuffix(it){
 }
 
 $('zipBtn').onclick=async()=>{
+  $('progress').style.display='block';
+  $('barFill').style.width='100%';
   $('status').textContent='Creating ZIP…';
   const zip=new JSZip();
-  allBlobs.forEach(b=>zip.file(b.name,b.blob));
+  const used=new Set();
+  allBlobs.forEach(b=>{
+    let n=b.name,k=1;
+    while(used.has(n)){const d=b.name.lastIndexOf('.');n=b.name.slice(0,d)+`_${++k}`+b.name.slice(d);}
+    used.add(n);zip.file(n,b.blob);
+  });
   const zblob=await zip.generateAsync({type:'blob'});
   await saveBlob(zblob,`converted-images-${Date.now()}.zip`);
   $('status').textContent='✅ ZIP ready.';
+  setTimeout(()=>$('progress').style.display='none',1500);
 };
 
 $('convertBtn').onclick=async()=>{
@@ -1151,7 +1283,7 @@ function resultRow(item,size,url,extra){
   pvBtn.addEventListener('auxclick',e=>{
     if(e.button!==1)return;
     e.preventDefault();
-    window.open(url,'_blank');
+    openInTab(item,url);
   });
 
   d.querySelector('.trash').onclick=async()=>{
@@ -1302,6 +1434,332 @@ function syncNewestLabel(){
   if(res.lastElementChild!==newestLabel)res.appendChild(newestLabel);
 }
 new MutationObserver(syncNewestLabel).observe($('results'),{childList:true});
+
+/* ---------- Image editor ---------- */
+let edItem=null,edSrc=null,edDraft=null,edMode='frame';
+const ADJ_DEF={bright:100,contrast:100,sat:100,hue:0,gray:0,sepia:0,invert:0,blur:0,warm:0,vignette:0,sharp:0};
+function hasAdj(c){const a=c&&c.adj;return !!a&&Object.keys(ADJ_DEF).some(k=>a[k]!==undefined&&a[k]!==ADJ_DEF[k]);}
+function adjFilter(a,size){ // css filter string for the canvas
+  a={...ADJ_DEF,...a};
+  const f=[];
+  if(a.bright!==100)f.push(`brightness(${a.bright}%)`);
+  if(a.contrast!==100)f.push(`contrast(${a.contrast}%)`);
+  if(a.sat!==100)f.push(`saturate(${a.sat}%)`);
+  if(a.hue)f.push(`hue-rotate(${a.hue}deg)`);
+  if(a.gray)f.push(`grayscale(${a.gray}%)`);
+  if(a.sepia)f.push(`sepia(${a.sepia}%)`);
+  if(a.invert)f.push(`invert(${a.invert}%)`);
+  if(a.blur)f.push(`blur(${(a.blur*size/500).toFixed(2)}px)`);
+  return f.length?f.join(' '):'none';
+}
+const defCrop=()=>({ratio:0,zoom:1,ox:0,oy:0,cut:{l:0,t:0,r:0,b:0},bg:{mode:'auto',color:'#ffffff'},adj:{...ADJ_DEF}}); // ratio 0 = same as image
+function hasCut(c){const u=c&&c.cut;return !!u&&(u.l>0||u.t>0||u.r>0||u.b>0);}
+function isDefaultCrop(c){return !c||(c.ratio===0&&c.zoom===1&&c.ox===0&&c.oy===0&&!hasCut(c)&&!hasAdj(c));}
+
+// free cut: removes strips from the edges (values are fractions of the image)
+function applyCut(src,crop){
+  if(!hasCut(crop))return src;
+  const u=crop.cut;
+  const x=Math.round(src.width*u.l),y=Math.round(src.height*u.t);
+  const w=Math.max(1,Math.round(src.width*(1-u.l-u.r))),h=Math.max(1,Math.round(src.height*(1-u.t-u.b)));
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  c.getContext('2d').drawImage(src,x,y,w,h,0,0,w,h);
+  return c;
+}
+
+function avgLum(src){ // average brightness 0-255, ignores transparent pixels
+  const s=document.createElement('canvas');s.width=s.height=32;
+  const g=s.getContext('2d');g.drawImage(src,0,0,32,32);
+  const d=g.getImageData(0,0,32,32).data;
+  let sum=0,n=0;
+  for(let i=0;i<d.length;i+=4){
+    if(d[i+3]<25)continue;
+    sum+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];n++;
+  }
+  return n?sum/n:255;
+}
+
+// background of the crop frame: css color, or null = transparent
+function cropBgColor(it,crop){
+  const b=crop.bg||{mode:'auto'};
+  const canAlpha=!['jpeg','pdf'].includes($('fmt').value);
+  if(b.mode==='transparent'&&canAlpha)return null;
+  if(b.mode==='color')return b.color;
+  return autoBg(it);
+}
+
+function autoBg(it){
+  if(it.lum===undefined)it.lum=avgLum(it.bmp);
+  return it.lum<128?'#000000':'#ffffff';
+}
+
+// warmth + vignette tint the image only (source-atop leaves empty/transparent areas alone)
+function applyFx(cv,a){
+  const g=cv.getContext('2d'),W=cv.width,H=cv.height;
+  g.save();
+  g.globalCompositeOperation='source-atop';
+  if(a.warm){
+    g.fillStyle=a.warm>0?`rgba(255,140,0,${a.warm/100*0.3})`:`rgba(0,110,255,${-a.warm/100*0.3})`;
+    g.fillRect(0,0,W,H);
+  }
+  if(a.vignette){
+    const r=Math.hypot(W,H)/2;
+    const gr=g.createRadialGradient(W/2,H/2,r*0.35,W/2,H/2,r);
+    gr.addColorStop(0,'rgba(0,0,0,0)');
+    gr.addColorStop(1,`rgba(0,0,0,${a.vignette/100*0.9})`);
+    g.fillStyle=gr;g.fillRect(0,0,W,H);
+  }
+  g.restore();
+  if(a.sharp)sharpen(cv,a.sharp/100);
+}
+function sharpen(cv,amt){
+  const g=cv.getContext('2d'),W=cv.width,H=cv.height;
+  if(W*H>36e6)return; // very large images (>36 megapixel) are skipped to avoid running out of memory
+  const s=g.getImageData(0,0,W,H).data;
+  const out=g.createImageData(W,H),o=out.data;
+  for(let y=0;y<H;y++){
+    for(let x=0;x<W;x++){
+      const i=(y*W+x)*4;
+      o[i+3]=s[i+3];
+      if(x===0||y===0||x===W-1||y===H-1||s[i+3]===0){o[i]=s[i];o[i+1]=s[i+1];o[i+2]=s[i+2];continue;}
+      for(let c=0;c<3;c++){
+        const j=i+c;
+        const v=s[j]+amt*(4*s[j]-s[j-4]-s[j+4]-s[j-W*4]-s[j+W*4]);
+        o[j]=v<0?0:v>255?255:v;
+      }
+    }
+  }
+  g.putImageData(out,0,0);
+}
+
+// draws the image into a frame of the chosen ratio; fit=true scales to maxDim (preview)
+function cropCanvas(src,crop,maxDim,bg,fit){
+  const iw=src.width,ih=src.height;
+  const R=crop.ratio||iw/ih;
+  let bw,bh; // frame size at 100% zoom
+  if(R>=iw/ih){bh=ih;bw=ih*R;}else{bw=iw;bh=iw/R;}
+  const ow=bw/crop.zoom,oh=bh/crop.zoom;
+  const k=fit?maxDim/Math.max(ow,oh):Math.min(1,maxDim/Math.max(ow,oh));
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(ow*k));c.height=Math.max(1,Math.round(oh*k));
+  const g=c.getContext('2d');
+  if(bg){g.fillStyle=bg;g.fillRect(0,0,c.width,c.height);}
+  g.imageSmoothingQuality='high';
+  const dw=iw*k,dh=ih*k;
+  const fx=crop.adj&&(crop.adj.sharp||crop.adj.vignette||crop.adj.warm);
+  let L=c,lg=g; // with effects the image goes on its own layer first, so the background stays untouched
+  if(fx){L=document.createElement('canvas');L.width=c.width;L.height=c.height;lg=L.getContext('2d');lg.imageSmoothingQuality='high';}
+  lg.filter=adjFilter(crop.adj,Math.max(dw,dh));
+  lg.drawImage(src,(c.width-dw)/2+crop.ox*c.width,(c.height-dh)/2+crop.oy*c.height,dw,dh);
+  lg.filter='none';
+  if(fx){applyFx(L,crop.adj);g.drawImage(L,0,0);}
+  return c;
+}
+
+const edc=$('edCanvas');
+
+function openEditor(it){
+  edItem=it;
+  edSrc=rotatedCanvas(it);
+  edDraft={...defCrop(),...(it.crop||{})};
+  edDraft.cut={...defCrop().cut,...(edDraft.cut||{})};
+  edDraft.bg={...defCrop().bg,...(edDraft.bg||{})};
+  edDraft.adj={...ADJ_DEF,...(edDraft.adj||{})};
+  $('edTitle').textContent=it.name;
+  syncEditorUI();
+  $('editorModal').classList.remove('hidden');
+  setMode('frame');
+}
+function closeEditor(){
+  $('editorModal').classList.add('hidden');
+  edItem=edSrc=edDraft=null;
+}
+function setMode(m){
+  edMode=m;
+  $('edFrameCtl').classList.toggle('ed-off',m==='cut');
+  $('edAdj').classList.toggle('ed-off',m==='cut');
+  $('edCutBtn').textContent=m==='cut'?'✓ Done cutting':'✂ Cut edges';
+  $('edCutReset').classList.toggle('hidden',m!=='cut');
+  edc.style.cursor='';
+  drawEditor();
+}
+
+function drawEditor(){
+  if(edMode==='cut'){
+    const s=1000/Math.max(edSrc.width,edSrc.height);
+    edc.width=Math.max(1,Math.round(edSrc.width*s));
+    edc.height=Math.max(1,Math.round(edSrc.height*s));
+    const g=edc.getContext('2d'),W=edc.width,H=edc.height,u=edDraft.cut;
+    g.drawImage(edSrc,0,0,W,H);
+    const x1=u.l*W,x2=W-u.r*W,y1=u.t*H,y2=H-u.b*H;
+    g.fillStyle='rgba(0,0,0,.6)';
+    g.fillRect(0,0,W,y1);g.fillRect(0,y2,W,H-y2);
+    g.fillRect(0,y1,x1,y2-y1);g.fillRect(x2,y1,W-x2,y2-y1);
+    g.strokeStyle='#fff';g.lineWidth=2;g.strokeRect(x1,y1,x2-x1,y2-y1);
+    const k=W/(edc.getBoundingClientRect().width||W),hs=10*k;
+    g.fillStyle='#fff';
+    [[x1,y1],[x2,y1],[x1,y2],[x2,y2],[(x1+x2)/2,y1],[(x1+x2)/2,y2],[x1,(y1+y2)/2],[x2,(y1+y2)/2]]
+      .forEach(([x,y])=>g.fillRect(x-hs/2,y-hs/2,hs,hs));
+    return;
+  }
+  const c=cropCanvas(applyCut(edSrc,edDraft),edDraft,1000,cropBgColor(edItem,edDraft),true);
+  edc.width=c.width;edc.height=c.height;
+  edc.getContext('2d').drawImage(c,0,0);
+}
+function syncEditorUI(){
+  const z=Math.round(edDraft.zoom*100);
+  $('edZoom').value=z;
+  $('edZoomVal').textContent=z+'%';
+  document.querySelectorAll('#edRatios .preset').forEach(b=>
+    b.classList.toggle('active',Math.abs(+b.dataset.r-edDraft.ratio)<0.001));
+document.querySelectorAll('#edBgModes .preset').forEach(b=>
+  b.classList.toggle('active',b.dataset.m===edDraft.bg.mode));
+$('edBgColor').value=edDraft.bg.color;
+if(adjSupported)ED_ADJ.forEach(([k])=>{
+  $('eda_'+k).value=edDraft.adj[k];
+  $('edv_'+k).textContent=edDraft.adj[k];
+});
+}
+function setZoom(z){
+  edDraft.zoom=Math.min(4,Math.max(0.3,z));
+  syncEditorUI();drawEditor();
+}
+$('edRatios').addEventListener('click',e=>{
+  const b=e.target.closest('.preset');if(!b)return;
+  edDraft.ratio=+b.dataset.r;edDraft.ox=0;edDraft.oy=0;
+  syncEditorUI();drawEditor();
+});
+$('edZoom').addEventListener('input',()=>setZoom($('edZoom').value/100));
+// adjustment sliders: [key, label, min, max, default]
+const ED_ADJ=[
+  ['bright','Brightness',0,200,100],['contrast','Contrast',0,200,100],['sat','Saturation',0,300,100],
+  ['hue','Hue',0,360,0],['gray','Grayscale',0,100,0],['sepia','Sepia',0,100,0],
+  ['invert','Invert',0,100,0],['blur','Blur',0,20,0],
+  ['warm','Warmth',-100,100,0],['vignette','Vignette',0,100,0],['sharp','Sharpen',0,100,0]
+];
+const adjSupported=typeof document.createElement('canvas').getContext('2d').filter==='string';
+if(!adjSupported){
+  $('edAdj').innerHTML='<div class="ed-hint">Adjustments are not supported by this browser.</div>';
+}else{
+  ED_ADJ.forEach(([k,label,min,max,def])=>{
+    const row=document.createElement('div');row.className='ed-adj';
+    row.innerHTML=`<div class="ed-label"><span>${label}</span><span id="edv_${k}">${def}</span></div>
+      <input type="range" id="eda_${k}" min="${min}" max="${max}" value="${def}" style="width:100%">`;
+    $('edAdj').appendChild(row);
+    row.querySelector('input').addEventListener('input',e=>{
+      edDraft.adj[k]=+e.target.value;
+      syncEditorUI();drawEditor();
+    });
+  });
+}
+$('edBgModes').addEventListener('click',e=>{
+  const b=e.target.closest('.preset');if(!b)return;
+  edDraft.bg.mode=b.dataset.m;
+  syncEditorUI();drawEditor();
+});
+$('edBgColor').addEventListener('input',()=>{ // picking a color switches to "Color"
+  edDraft.bg.color=$('edBgColor').value;edDraft.bg.mode='color';
+  syncEditorUI();drawEditor();
+});
+edc.addEventListener('wheel',e=>{
+  if(edMode==='cut')return;
+  e.preventDefault();
+  setZoom(edDraft.zoom*Math.exp(-e.deltaY*0.0015));
+},{passive:false});
+
+// which edges of the cut frame are under the pointer
+function cutHit(e){
+  const r=edc.getBoundingClientRect(),k=edc.width/r.width;
+  const px=(e.clientX-r.left)*k,py=(e.clientY-r.top)*k;
+  const W=edc.width,H=edc.height,u=edDraft.cut,tol=14*k;
+  const x1=u.l*W,x2=W-u.r*W,y1=u.t*H,y2=H-u.b*H;
+  const inY=py>y1-tol&&py<y2+tol,inX=px>x1-tol&&px<x2+tol;
+  const h={
+    L:inY&&Math.abs(px-x1)<tol,R:inY&&Math.abs(px-x2)<tol,
+    T:inX&&Math.abs(py-y1)<tol,B:inX&&Math.abs(py-y2)<tol
+  };
+  h.M=!(h.L||h.R||h.T||h.B)&&px>x1&&px<x2&&py>y1&&py<y2; // inside the frame = move it
+  return h;
+}
+function cutCursor(h){
+  if((h.L&&h.T)||(h.R&&h.B))return 'nwse-resize';
+  if((h.L&&h.B)||(h.R&&h.T))return 'nesw-resize';
+  if(h.L||h.R)return 'ew-resize';
+  if(h.T||h.B)return 'ns-resize';
+  if(h.M)return 'move';
+  return 'default';
+}
+
+// drag: moves the image (frame mode) or the cut edges (cut mode)
+let edDrag=null;
+edc.addEventListener('pointerdown',e=>{
+  if(edMode==='cut'){
+    const h=cutHit(e);
+    if(!(h.L||h.R||h.T||h.B||h.M))return;
+    edc.setPointerCapture(e.pointerId);
+    edDrag={x:e.clientX,y:e.clientY,h};
+  }else{
+    edc.setPointerCapture(e.pointerId);
+    edDrag={x:e.clientX,y:e.clientY};
+  }
+});
+edc.addEventListener('pointermove',e=>{
+  if(!edDrag){
+    if(edMode==='cut')edc.style.cursor=cutCursor(cutHit(e));
+    return;
+  }
+  const r=edc.getBoundingClientRect();
+  const dx=(e.clientX-edDrag.x)/r.width,dy=(e.clientY-edDrag.y)/r.height;
+  if(edMode==='cut'){
+    const u=edDraft.cut,h=edDrag.h,min=0.05;
+    if(h.M){ // move the whole frame, size stays the same
+      const mx=Math.max(-u.l,Math.min(u.r,dx)),my=Math.max(-u.t,Math.min(u.b,dy));
+      u.l+=mx;u.r-=mx;u.t+=my;u.b-=my;
+    }
+    if(h.L)u.l=Math.max(0,Math.min(1-u.r-min,u.l+dx));
+    if(h.R)u.r=Math.max(0,Math.min(1-u.l-min,u.r-dx));
+    if(h.T)u.t=Math.max(0,Math.min(1-u.b-min,u.t+dy));
+    if(h.B)u.b=Math.max(0,Math.min(1-u.t-min,u.b-dy));
+  }else{
+    edDraft.ox=Math.max(-1,Math.min(1,edDraft.ox+dx));
+    edDraft.oy=Math.max(-1,Math.min(1,edDraft.oy+dy));
+  }
+  edDrag.x=e.clientX;edDrag.y=e.clientY;
+  drawEditor();
+});
+edc.addEventListener('pointerup',()=>edDrag=null);
+edc.addEventListener('pointercancel',()=>edDrag=null);
+
+$('edCutBtn').onclick=()=>setMode(edMode==='cut'?'frame':'cut');
+$('edCutReset').onclick=()=>{edDraft.cut=defCrop().cut;drawEditor();};
+$('edReset').onclick=()=>{edDraft=defCrop();syncEditorUI();drawEditor();};
+$('edApply').onclick=()=>{
+  edItem.crop=isDefaultCrop(edDraft)?null:{...edDraft,cut:{...edDraft.cut},bg:{...edDraft.bg},adj:{...edDraft.adj}};
+  closeEditor();render();
+};
+$('edClose').onclick=closeEditor;
+$('edCancel').onclick=closeEditor;
+$('editorModal').addEventListener('click',e=>{if(e.target.id==='editorModal')closeEditor();});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!$('editorModal').classList.contains('hidden'))closeEditor();
+});
+
+/* ---------- Open result in a new tab (checkerboard behind transparency) ---------- */
+function openInTab(item,url){
+  if(/\.pdf$/i.test(item.name)){window.open(url,'_blank');return;}
+  const win=window.open('','_blank');
+  if(!win)return;
+  const r=new FileReader();
+  r.onload=()=>{
+    win.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(item.name)}</title>
+<style>html,body{height:100%;margin:0;background:#16181c}
+body{display:flex;align-items:center;justify-content:center}
+img{max-width:100%;max-height:100%;background:conic-gradient(#2a2d33 25%,#1c1e22 0 50%,#2a2d33 0 75%,#1c1e22 0) 0 0/20px 20px}</style>
+<img src="${r.result}">`);
+    win.document.close();
+  };
+  r.readAsDataURL(item.blob);
+}
 </script>
 </body>
 </html>
